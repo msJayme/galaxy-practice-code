@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Starflight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600&family=Space+Grotesk:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<canvas id="sky" role="img" aria-label="First-person flight through a starfield toward spiral galaxies and nebulae"></canvas>
+<div class="vignette"></div>
+
+<header class="hud">
+  <div class="mark">Starflight</div>
+  <dl class="readout" aria-live="off">
+    <dt id="ahead-label">Approaching</dt><dd id="ahead-name">Whirlpool</dd>
+    <dt>Distance</dt><dd id="ahead-dist">690 kly</dd>
+    <dt>Warp</dt><dd id="warp">1.0</dd>
+  </dl>
+</header>
+
+<div class="dock">
+  <p class="hint" id="hint">Move your cursor to steer. Hold Space to hyperjump.</p>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Speed">
+      <button type="button" data-mode="cruise" aria-pressed="true">Cruise</button>
+      <button type="button" data-mode="warp" aria-pressed="false">Warp</button>
+      <button type="button" data-mode="hyper" aria-pressed="false">Hyperjump</button>
+    </div>
+    <button type="button" id="auto" aria-pressed="false">Autopilot</button>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

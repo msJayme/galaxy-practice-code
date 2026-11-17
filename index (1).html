@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Starflight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600&family=Space+Grotesk:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed flight canvas; wordmark + readout top-left, speed dock bottom-center. Single dark look by choice. */
+:root {
+  color-scheme: dark;
+  --void: #05060f;
+  --ink: #e9edff;
+  --dim: #8f98c8;
+  --cyan: #5ef2ff;
+  --magenta: #ff4fd8;
+  --panel: rgba(12, 14, 34, 0.66);
+  --line: rgba(165, 180, 255, 0.24);
+  --font-display: 'Unbounded', 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--font-body);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#sky { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--void); }
+.vignette {
+  position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(5, 6, 15, 0) 45%, rgba(5, 6, 15, 0.6) 100%);
+}
+.hud {
+  position: fixed; z-index: 2;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  display: flex; flex-direction: column; gap: 14px;
+  pointer-events: none;
+}
+.mark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px;
+}
+.mark::before {
+  content: ""; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 12px 2px var(--cyan), 14px 0 0 -2px var(--magenta);
+  margin-right: 8px;
+}
+.readout {
+  margin: 0; display: grid; grid-template-columns: auto auto; gap: 4px 16px;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.4;
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  font-variant-numeric: tabular-nums;
+}
+.readout dt { color: var(--dim); }
+.readout dd { margin: 0; text-align: right; color: var(--ink); min-width: 9ch; }
+.dock {
+  position: fixed; z-index: 2;
+  left: 0; right: 0;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.hint {
+  margin: 0; font-size: 13px; color: var(--dim); text-align: center;
+  transition: opacity 1.2s ease; pointer-events: none;
+}
+.hint.hide { opacity: 0; }
+.controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.seg {
+  display: flex; padding: 4px; gap: 4px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+button {
+  font: 500 13px/1 var(--font-body);
+  color: var(--dim);
+  background: transparent;
+  border: 0; border-radius: 999px;
+  padding: 10px 16px; cursor: pointer;
+  transition: color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+button:hover { color: var(--ink); }
+button[aria-pressed="true"] {
+  color: #04050c;
+  background: var(--cyan);
+  box-shadow: 0 0 18px rgba(94, 242, 255, 0.45);
+}
+#auto {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  padding: 12px 18px;
+}
+#auto[aria-pressed="true"] {
+  background: var(--magenta); border-color: var(--magenta);
+  box-shadow: 0 0 18px rgba(255, 79, 216, 0.45);
+}
+button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 480px) {
+  .mark { font-size: 13px; }
+  button { padding: 10px 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hint { transition: none; }
+}
+</style>
+
+<style>html,body{margin:0}</style>
+</head>
+<body>
+<canvas id="sky" role="img" aria-label="First-person flight through a starfield toward spiral galaxies and nebulae"></canvas>
+<div class="vignette"></div>
+
+<header class="hud">
+  <div class="mark">Starflight</div>
+  <dl class="readout" aria-live="off">
+    <dt id="ahead-label">Approaching</dt><dd id="ahead-name">Whirlpool</dd>
+    <dt>Distance</dt><dd id="ahead-dist">690 kly</dd>
+    <dt>Warp</dt><dd id="warp">1.0</dd>
+  </dl>
+</header>
+
+<div class="dock">
+  <p class="hint" id="hint">Move your cursor to steer. Hold Space to hyperjump.</p>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Speed">
+      <button type="button" data-mode="cruise" aria-pressed="true">Cruise</button>
+      <button type="button" data-mode="warp" aria-pressed="false">Warp</button>
+      <button type="button" data-mode="hyper" aria-pressed="false">Hyperjump</button>
+    </div>
+    <button type="button" id="auto" aria-pressed="false">Autopilot</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var cv = document.getElementById('sky');
+  var ctx = cv.getContext('2d');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var coarse = window.matchMedia('(pointer: coarse)').matches;
+  var W = 0, H = 0, F = 1, DPR = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    F = Math.min(W, H) * 0.95;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#05060f'; ctx.fillRect(0, 0, W, H);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function gauss() { var s = 0; for (var i = 0; i < 4; i++) s += Math.random(); return (s - 2) / 0.577; }
+  function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+
+  function sprite(h, s, l) {
+    var size = 128, c = document.createElement('canvas');
+    c.width = c.height = size;
+    var g = c.getContext('2d');
+    var gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gr.addColorStop(0, 'hsla(' + h + ',' + s + '%,' + l + '%,1)');
+    gr.addColorStop(0.35, 'hsla(' + h + ',' + s + '%,' + l + '%,0.35)');
+    gr.addColorStop(1, 'hsla(' + h + ',' + s + '%,' + l + '%,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, size, size);
+    return c;
+  }
+
+  /* ---------- Stars ---------- */
+  var STAR_PAL = ['hsl(210,90%,88%)', 'hsl(200,80%,82%)', 'hsl(35,95%,80%)', 'hsl(320,85%,82%)', 'hsl(0,0%,96%)'];
+  var NS = Math.round(clamp(W * H / 650, 1100, 2800));
+  var ZMAX = 1600, VOL = 1400;
+  var starB = STAR_PAL.map(function () { return []; });
+  for (var si = 0; si < NS; si++) {
+    var r = Math.random();
+    var ci = r < 0.35 ? 0 : r < 0.6 ? 1 : r < 0.75 ? 2 : r < 0.88 ? 3 : 4;
+    starB[ci].push({ x: rnd(-VOL, VOL), y: rnd(-VOL, VOL), z: rnd(20, ZMAX), ax: 0, ay: 0, bx: 0, by: 0 });
+  }
+
+  function stepStars(spd, stx, sty, cx, cy) {
+    var k = spd * 0.9, streak = spd * 1.6 + 0.4;
+    for (var b = 0; b < starB.length; b++) {
+      var arr = starB[b];
+      for (var i = 0; i < arr.length; i++) {
+        var s = arr[i];
+        s.z -= spd; s.x -= stx * k; s.y -= sty * k;
+        if (s.x > VOL) s.x -= 2 * VOL; else if (s.x < -VOL) s.x += 2 * VOL;
+        if (s.y > VOL) s.y -= 2 * VOL; else if (s.y < -VOL) s.y += 2 * VOL;
+        if (s.z < 6) { s.z = ZMAX; s.x = rnd(-VOL, VOL); s.y = rnd(-VOL, VOL); }
+        var f = F / s.z, pf = F / (s.z + streak);
+        s.ax = cx + s.x * f; s.ay = cy + s.y * f;
+        s.bx = cx + s.x * pf; s.by = cy + s.y * pf;
+      }
+    }
+  }
+
+  function drawStars(speed) {
+    ctx.lineCap = 'round';
+    var wBoost = speed > 12 ? 0.35 : 0;
+    for (var b = 0; b < starB.length; b++) {
+      var arr = starB[b];
+      ctx.strokeStyle = STAR_PAL[b];
+      for (var pass = 0; pass < 2; pass++) {
+        ctx.lineWidth = (pass ? 2.3 : 1.1) + wBoost;
+        ctx.globalAlpha = pass ? 1 : 0.8;
+        ctx.beginPath();
+        for (var i = 0; i < arr.length; i++) {
+          var s = arr[i];
+          if ((s.z < 500) !== (pass === 1)) continue;
+          ctx.moveTo(s.bx, s.by); ctx.lineTo(s.ax, s.ay);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- Galaxies ---------- */
+  var NAMES = ['Whirlpool', 'Andromeda', 'Pinwheel', 'Triangulum', 'Cartwheel', 'Sombrero', 'Sunflower', 'Bode', 'Black Eye', 'Cigar'];
+  var PALS = [{ c: 38, a: 196 }, { c: 44, a: 300 }, { c: 28, a: 262 }, { c: 50, a: 170 }, { c: 34, a: 330 }, { c: 40, a: 215 }];
+  var NPART = coarse ? 1100 : 1800;
+
+  function makeGalaxy(z, x, y, name) {
+    var R = rnd(520, 880), arms = pick([2, 2, 3, 4]), wind = rnd(3, 5.2), pal = pick(PALS);
+    var cols = [];
+    for (var i = 0; i < 6; i++) {
+      var hue = i < 2 ? pal.c : pal.a + (i - 3) * 7;
+      cols.push('hsl(' + Math.round(hue) + ',' + (i < 2 ? 95 : 88) + '%,' + Math.round(88 - i * 5) + '%)');
+    }
+    var B = [];
+    for (i = 0; i < 6; i++) B.push({ u: [], v: [], w: [], s: [] });
+    for (var n = 0; n < NPART; n++) {
+      var u, v, w, b;
+      if (Math.random() < 0.22) {
+        u = gauss() * R * 0.09; v = gauss() * R * 0.09; w = gauss() * R * 0.07; b = 0;
+      } else {
+        var t = Math.pow(Math.random(), 0.75);
+        var rr = t * R + R * 0.04;
+        var ang = Math.floor(Math.random() * arms) * 6.2832 / arms + t * wind + gauss() * (0.26 * (1 - 0.55 * t) + 0.05);
+        u = rr * Math.cos(ang); v = rr * Math.sin(ang);
+        w = gauss() * R * 0.03 * (1 - 0.6 * t);
+        b = Math.min(5, 1 + Math.floor(t * 5));
+      }
+      B[b].u.push(u); B[b].v.push(v); B[b].w.push(w); B[b].s.push(rnd(1.6, 3.6));
+    }
+    for (i = 0; i < 6; i++) {
+      B[i].u = Float32Array.from(B[i].u); B[i].v = Float32Array.from(B[i].v);
+      B[i].w = Float32Array.from(B[i].w); B[i].s = Float32Array.from(B[i].s);
+    }
+    var tilt = rnd(0.9, 1.4), roll = rnd(-0.9, 0.9);
+    return {
+      x: x, y: y, z: z, R: R, name: name, cols: cols, B: B,
+      glow: sprite(pal.c, 95, 70), spin: rnd(0, 6.28), spinV: rnd(0.004, 0.012) * (Math.random() < 0.5 ? -1 : 1),
+      ct: Math.cos(tilt), st: Math.sin(tilt), cr: Math.cos(roll), sr: Math.sin(roll)
+    };
+  }
+
+  var galaxies = [
+    makeGalaxy(1150, 420, -140, NAMES[0]),
+    makeGalaxy(2700, -700, 300, NAMES[1]),
+    makeGalaxy(4300, 500, 500, NAMES[2]),
+    makeGalaxy(5700, -300, -600, NAMES[3]),
+    makeGalaxy(7100, 900, -200, NAMES[4])
+  ];
+
+  function nextName() {
+    var used = galaxies.map(function (g) { return g.name; });
+    var free = NAMES.filter(function (n) { return used.indexOf(n) < 0; });
+    return pick(free.length ? free : NAMES);
+  }
+
+  var GFAR = 8000;
+  function drawGalaxy(g, cx, cy) {
+    var dz = g.z;
+    if (dz > GFAR) return;
+    var far = clamp((GFAR - dz) / 2600, 0, 1);
+    if (dz > 40) {
+      var k0 = F / dz, size = g.R * k0 * 1.7;
+      ctx.globalAlpha = far * 0.8 * clamp(dz / (g.R * 0.9), 0.12, 1);
+      ctx.drawImage(g.glow, cx + g.x * k0 - size / 2, cy + g.y * k0 - size / 2, size, size);
+    }
+    var cs = Math.cos(g.spin), sn = Math.sin(g.spin);
+    var ct = g.ct, st = g.st, cr = g.cr, sr = g.sr;
+    var mx = Math.max(W, H) * 0.2;
+    ctx.globalAlpha = far * 0.9;
+    for (var b = 0; b < 6; b++) {
+      var bk = g.B[b], U = bk.u, V = bk.v, Wd = bk.w, S = bk.s;
+      ctx.fillStyle = g.cols[b];
+      for (var i = 0; i < U.length; i++) {
+        var ur = U[i] * cs - V[i] * sn, vr = U[i] * sn + V[i] * cs;
+        var y1 = Wd[i] * ct - vr * st, z1 = Wd[i] * st + vr * ct;
+        var x2 = ur * cr - y1 * sr, y2 = ur * sr + y1 * cr;
+        var wz = g.z + z1;
+        if (wz < 25) continue;
+        var k = F / wz;
+        var sx = cx + (g.x + x2) * k, sy = cy + (g.y + y2) * k;
+        if (sx < -mx || sx > W + mx || sy < -mx || sy > H + mx) continue;
+        var s = Math.min(5, Math.max(0.8, S[i] * k));
+        ctx.fillRect(sx - s / 2, sy - s / 2, s, s);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- Nebulae ---------- */
+  var NEB = [[320, 90, 55], [215, 95, 55], [270, 85, 60], [175, 90, 45], [20, 95, 55]];
+  var nebSprites = NEB.map(function (h) { return sprite(h[0], h[1], h[2]); });
+  function makeNebula(z) {
+    var hi = Math.floor(Math.random() * NEB.length), bx = rnd(-1100, 1100), by = rnd(-800, 800), blobs = [];
+    for (var i = 0; i < 5; i++) {
+      blobs.push({
+        dx: rnd(-450, 450), dy: rnd(-350, 350), dz: rnd(-400, 400), s: rnd(500, 1000), a: rnd(0.1, 0.2),
+        spr: nebSprites[(hi + (i % 2)) % NEB.length]
+      });
+    }
+    return { x: bx, y: by, z: z, blobs: blobs };
+  }
+  var nebulae = [];
+  for (var ni = 0; ni < (coarse ? 5 : 8); ni++) nebulae.push(makeNebula(rnd(800, 7200)));
+
+  function drawNebula(n, cx, cy) {
+    for (var i = 0; i < n.blobs.length; i++) {
+      var b = n.blobs[i], wz = n.z + b.dz;
+      if (wz < 120 || wz > GFAR) continue;
+      var k = F / wz, size = b.s * k * 2;
+      ctx.globalAlpha = b.a * clamp(wz / 700, 0, 1) * clamp((GFAR - wz) / 2600, 0, 1);
+      ctx.drawImage(b.spr, cx + (n.x + b.dx) * k - size / 2, cy + (n.y + b.dy) * k - size / 2, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- Input and state ---------- */
+  var MODES = { cruise: 2.0, warp: 9, hyper: 30 };
+  var mode = 'cruise', speed = MODES.cruise, boosting = false, auto = false;
+  var speedScale = reduce ? 0.35 : 1;
+  var steer = { x: 0, y: 0 };
+  var ptr = { x: 0, y: 0, active: false, down: false };
+  var keys = { l: 0, r: 0, u: 0, d: 0 };
+
+  var modeBtns = Array.prototype.slice.call(document.querySelectorAll('[data-mode]'));
+  var autoBtn = document.getElementById('auto');
+  function setMode(m) {
+    mode = m;
+    modeBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-mode') === m ? 'true' : 'false'); });
+  }
+  function setAuto(v) { auto = v; autoBtn.setAttribute('aria-pressed', v ? 'true' : 'false'); }
+  modeBtns.forEach(function (b) { b.addEventListener('click', function () { setMode(b.getAttribute('data-mode')); }); });
+  autoBtn.addEventListener('click', function () { setAuto(!auto); });
+
+  window.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'touch' && !ptr.down) return;
+    if (e.target && e.target.closest && e.target.closest('.dock')) return;
+    ptr.x = clamp((e.clientX - W / 2) / (W / 2), -1, 1);
+    ptr.y = clamp((e.clientY - H / 2) / (H / 2), -1, 1);
+    ptr.active = true;
+  });
+  window.addEventListener('pointerdown', function (e) {
+    if (e.target && e.target.closest && e.target.closest('.dock')) return;
+    ptr.down = true;
+    ptr.x = clamp((e.clientX - W / 2) / (W / 2), -1, 1);
+    ptr.y = clamp((e.clientY - H / 2) / (H / 2), -1, 1);
+    ptr.active = true;
+    if (auto) setAuto(false);
+  });
+  function pointerEnd(e) { ptr.down = false; if (e.pointerType === 'touch') ptr.active = false; }
+  window.addEventListener('pointerup', pointerEnd);
+  window.addEventListener('pointercancel', pointerEnd);
+  document.documentElement.addEventListener('mouseleave', function () { ptr.active = false; });
+
+  window.addEventListener('keydown', function (e) {
+    var k = e.key.toLowerCase(), used = true;
+    if (k === 'arrowleft' || k === 'a') { keys.l = 1; if (auto) setAuto(false); }
+    else if (k === 'arrowright' || k === 'd') { keys.r = 1; if (auto) setAuto(false); }
+    else if (k === 'arrowup' || k === 'w') { keys.u = 1; if (auto) setAuto(false); }
+    else if (k === 'arrowdown' || k === 's') { keys.d = 1; if (auto) setAuto(false); }
+    else if (k === ' ') boosting = true;
+    else if (k === '1') setMode('cruise');
+    else if (k === '2') setMode('warp');
+    else if (k === '3') setMode('hyper');
+    else if (k === 'p') setAuto(!auto);
+    else used = false;
+    if (used && k === ' ') e.preventDefault();
+  });
+  window.addEventListener('keyup', function (e) {
+    var k = e.key.toLowerCase();
+    if (k === 'arrowleft' || k === 'a') keys.l = 0;
+    else if (k === 'arrowright' || k === 'd') keys.r = 0;
+    else if (k === 'arrowup' || k === 'w') keys.u = 0;
+    else if (k === 'arrowdown' || k === 's') keys.d = 0;
+    else if (k === ' ') boosting = false;
+  });
+
+  var hint = document.getElementById('hint');
+  if (coarse) hint.textContent = 'Drag to steer. Tap Warp or Hyperjump to go faster.';
+  setTimeout(function () { hint.classList.add('hide'); }, 9000);
+
+  var elLabel = document.getElementById('ahead-label'), elName = document.getElementById('ahead-name');
+  var elDist = document.getElementById('ahead-dist'), elWarp = document.getElementById('warp');
+
+  function nearestAhead() {
+    var best = null;
+    for (var i = 0; i < galaxies.length; i++) {
+      var g = galaxies[i];
+      if (g.z < -g.R * 0.3) continue;
+      if (!best || g.z < best.z) best = g;
+    }
+    return best;
+  }
+
+  /* ---------- Main loop ---------- */
+  var last = performance.now(), t0 = last, frame = 0;
+
+  function loop(now) {
+    var dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    var dtf = dt * 60, t = (now - t0) / 1000;
+    frame++;
+
+    var target = boosting ? MODES.hyper : MODES[mode];
+    target *= speedScale;
+    speed += (target - speed) * (1 - Math.exp(-dt * 2.5));
+    var spd = speed * dtf;
+
+    var near = nearestAhead();
+    var tx = 0, ty = 0;
+    if (auto) {
+      if (near && near.z > 150) {
+        tx = clamp(near.x / near.z * 2.5, -1, 1);
+        ty = clamp(near.y / near.z * 2.5, -1, 1);
+      }
+      tx += Math.sin(t * 0.4) * 0.12; ty += Math.cos(t * 0.31) * 0.1;
+    } else {
+      tx = ptr.active ? ptr.x * 0.9 : 0;
+      ty = ptr.active ? ptr.y * 0.9 : 0;
+      tx += keys.r - keys.l; ty += keys.d - keys.u;
+      tx = clamp(tx, -1, 1); ty = clamp(ty, -1, 1);
+    }
+    var sm = 1 - Math.exp(-dt * 3);
+    steer.x += (tx - steer.x) * sm;
+    steer.y += (ty - steer.y) * sm;
+
+    var bank = reduce ? 0 : steer.x * 0.12;
+    var cx = W / 2 - steer.x * W * 0.05, cy = H / 2 - steer.y * H * 0.05;
+
+    var i;
+    for (i = 0; i < galaxies.length; i++) {
+      var g = galaxies[i];
+      g.z -= spd; g.x -= steer.x * spd * 0.9; g.y -= steer.y * spd * 0.9;
+      g.spin += g.spinV * dtf * (reduce ? 0.3 : 1);
+      if (g.z < -g.R * 0.7) {
+        var nm = nextName();
+        galaxies[i] = makeGalaxy(rnd(6200, 7600), rnd(-950, 950), rnd(-650, 650), nm);
+      }
+    }
+    for (i = 0; i < nebulae.length; i++) {
+      var n = nebulae[i];
+      n.z -= spd; n.x -= steer.x * spd * 0.9; n.y -= steer.y * spd * 0.9;
+      if (n.z < -300) nebulae[i] = makeNebula(rnd(6500, 8000));
+    }
+    stepStars(spd, steer.x, steer.y, cx, cy);
+
+    var fade = reduce ? 0.6 : clamp(0.9 - (speed - 2) / 30 * 0.65, 0.22, 0.9);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(5,6,15,' + fade.toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.translate(W / 2, H / 2); ctx.rotate(bank); ctx.translate(-W / 2, -H / 2);
+    ctx.globalCompositeOperation = 'lighter';
+    for (i = 0; i < nebulae.length; i++) drawNebula(nebulae[i], cx, cy);
+    for (i = 0; i < galaxies.length; i++) drawGalaxy(galaxies[i], cx, cy);
+    drawStars(speed);
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+
+    if (frame % 8 === 0) {
+      near = nearestAhead();
+      if (near) {
+        elLabel.textContent = near.z < near.R * 0.5 ? 'Crossing' : 'Approaching';
+        elName.textContent = near.name;
+        elDist.textContent = Math.max(0, Math.round(near.z * 0.6)).toLocaleString('en-US') + ' kly';
+      }
+      elWarp.textContent = (speed / (MODES.cruise * speedScale)).toFixed(1);
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
